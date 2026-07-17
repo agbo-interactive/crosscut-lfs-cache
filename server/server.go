@@ -115,6 +115,9 @@ func newServer(logger log.Logger, upstream, directory string, cacheEnabled bool)
 		if err != nil {
 			return nil, err
 		}
+		fs.CorruptEntryHandler = func(key string, expectedSize, actualSize int64) {
+			level.Warn(logger).Log("event", "corrupt-entry-discarded", "oid", key, "expected-size", expectedSize, "actual-size", actualSize)
+		}
 	}
 
 	s := &Server{
@@ -332,7 +335,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 	begin := time.Now()
 	oid := path.Base(r.URL.Path)
-	cr, cw, source, err := s.cache.Get(oid)
+	cr, cw, source, err := s.cache.Get(oid, int64(size))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return

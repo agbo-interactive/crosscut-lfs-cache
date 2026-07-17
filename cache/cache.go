@@ -37,6 +37,10 @@ type FilesystemCache struct {
 	directory    string
 
 	Filenamer func(key string) string
+
+	// CorruptEntryHandler, when set, is called whenever Get discards a cached
+	// file whose on-disk size does not match the expected size.
+	CorruptEntryHandler func(key string, expectedSize, actualSize int64)
 }
 
 type fileConcurrentReadWriter struct {
@@ -81,15 +85,38 @@ func (fc *FilesystemCache) Directory() string {
 // - A writer if the cache doesn't yet exist so that it can be populated.
 // - The source of the cache (disk, inflight, or fresh)
 //
+// size is the expected size of the content in bytes. A disk entry whose size
+// differs is discarded and refetched as if it were never cached, so a corrupt
+// entry (e.g. truncated by a storage fault) heals instead of being served
+// forever. Pass a negative size to skip the check.
+//
 // A reader can be read from whilst the writer is being written to. The readers
 // will only EOF if the writer or reader is closed.
 //
 // A writer can only be closed if all readers have been closed.
-func (fc *FilesystemCache) Get(key string) (ReadAtReadCloser, io.WriteCloser, Source, error) {
+func (fc *FilesystemCache) Get(key string, size int64) (ReadAtReadCloser, io.WriteCloser, Source, error) {
 	filename := filepath.Join(fc.directory, DirObjects, fc.Filenamer(key))
 	f, err := os.Open(filename)
 	if err == nil {
-		return f, nil, SourceDisk, nil
+		fi, serr := f.Stat()
+		if serr != nil {
+			f.Close()
+			return nil, nil, SourceFresh, serr
+		}
+
+		if size < 0 || fi.Size() == size {
+			return f, nil, SourceDisk, nil
+		}
+
+		// wrong size on disk: discard the entry and fall through to a fresh
+		// fetch (a concurrent Get may have already removed it)
+		f.Close()
+		if rerr := os.Remove(filename); rerr != nil && !os.IsNotExist(rerr) {
+			return nil, nil, SourceFresh, rerr
+		}
+		if fc.CorruptEntryHandler != nil {
+			fc.CorruptEntryHandler(key, size, fi.Size())
+		}
 	}
 
 	fc.lock.Lock()
@@ -129,6 +156,12 @@ func (fc *FilesystemCache) Done(key string, err error) error {
 		return ErrKeyNotFound
 	}
 	delete(fc.singleflight, key)
+
+	// flush to stable storage before the rename commits the entry, so a
+	// host-side cache loss cannot leave a truncated file in the cache
+	if err == nil {
+		err = singleflight.f.Sync()
+	}
 
 	// ensure crw is closed
 	if err := singleflight.crw.Close(); err != nil {

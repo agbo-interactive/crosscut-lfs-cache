@@ -11,7 +11,7 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  ECR_REPOSITORY: crossscut/crosscut-lfs-cache
+  ECR_REPOSITORY: crosscut/crosscut-lfs-cache
 
 permissions:
   id-token: write

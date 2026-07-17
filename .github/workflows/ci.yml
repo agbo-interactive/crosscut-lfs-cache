@@ -3,7 +3,7 @@
 #
 # Repository configuration required (Settings > Secrets and variables > Actions):
 #   secrets.AWS_ACCESS_KEY_ID / secrets.AWS_SECRET_ACCESS_KEY
-#     access keys for the GitHubnActions-CROSSCUT IAM user (ECR push rights)
+#     access keys for the GitHubActions-CROSSCUT IAM user (ECR push rights)
 name: ci
 
 on:

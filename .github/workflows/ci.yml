@@ -1,10 +1,13 @@
-# Builds the lfscache image and pushes it to ECR on every push to master.
+# ci-gate runs on PRs and in the merge queue (required check on master);
+# the image is built and pushed to ECR on every push to master.
 #
 # Repository configuration required (Settings > Secrets and variables > Actions):
 #   secrets.AWS_ROLE_ARN   IAM role assumable via GitHub OIDC with ECR push rights
-name: image
+name: ci
 
 on:
+  pull_request:
+  merge_group:
   push:
     branches: [master]
   workflow_dispatch:
@@ -18,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  ci-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +32,8 @@ jobs:
       - run: go test ./...
 
   push-image:
-    needs: test
+    needs: ci-gate
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
